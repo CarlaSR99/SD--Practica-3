@@ -44,20 +44,20 @@ services:
     restart: on-failure
 
   # --- Servicio del Coordinador de Bloqueo (Mutex) ---
-  lock-coordinator:
-    build: .
-    container_name: lock-coordinator
-    depends_on:
-      - mqtt-broker
-    command: "node lock-coordinator/lock-coordinator.js"
-    environment:
+  # --lock-coordinator:
+   # build: .
+   # container_name: lock-coordinator
+    #depends_on:
+     # - mqtt-broker
+    #command: "node lock-coordinator/lock-coordinator.js"
+    #environment:
       # ID de Proceso para Exclusión Mutua
-      - PROCESS_ID=2
+     # - PROCESS_ID=2
       # --- NUEVO: Configuración de Elección ---
-      - PROCESS_PRIORITY=10 # El ID más alto, es el líder
-      - ELECTION_PARTICIPANTS=10:lock-coordinator,6:publisher-2,5:publisher-1
-    restart: on-failure
-
+      #- PROCESS_PRIORITY=10 # El ID más alto, es el líder
+      #- ELECTION_PARTICIPANTS=10:lock-coordinator,6:publisher-2,5:publisher-1
+   # restart: on-failure 
+      
   # --- Servicio para el Publicador (Sensor 1) ---
   publisher-1:
     build: .
@@ -71,8 +71,9 @@ services:
       - CLOCK_DRIFT_RATE=500
       - PROCESS_ID=0
       # --- NUEVO: Configuración de Elección ---
-      - PROCESS_PRIORITY=5 # El ID más bajo
-      - ELECTION_PARTICIPANTS=10:lock-coordinator,6:publisher-2,5:publisher-1
+      - PROCESS_PRIORITY=10 # El ID más bajo
+      - ELECTION_PARTICIPANTS=sensor-1:10,sensor-2:20,sensor-3:30,sensor-4:40,sensor-5:50
+                              
     restart: on-failure
 
   # --- Servicio para el Publicador (Sensor 2) ---
@@ -88,9 +89,58 @@ services:
       - CLOCK_DRIFT_RATE=-500
       - PROCESS_ID=1
       # --- NUEVO: Configuración de Elección ---
-      - PROCESS_PRIORITY=6 # ID intermedio
-      - ELECTION_PARTICIPANTS=10:lock-coordinator,6:publisher-2,5:publisher-1
+      - PROCESS_PRIORITY=20 # ID Prioridad Unica
+      - ELECTION_PARTICIPANTS=sensor-1:10,sensor-2:20,sensor-3:30,sensor-4:40,sensor-5:50
     restart: on-failure
+
+  publisher-3:
+    build: .
+    container_name: publisher-3
+    depends_on:
+      - mqtt-broker
+      - time-server # Depende del servidor de tiempo
+    command: "node publisher/publisher.js"
+    environment:
+      - DEVICE_ID=sensor-003
+      - CLOCK_DRIFT_RATE=500
+      - PROCESS_ID=2
+      # --- NUEVO: Configuración de Elección ---
+      - PROCESS_PRIORITY=30 # ID Prioridad Unica
+      - ELECTION_PARTICIPANTS=sensor-1:10,sensor-2:20,sensor-3:30,sensor-4:40,sensor-5:50
+    restart: on-failure
+
+  publisher-4:
+    build: .
+    container_name: publisher-4
+    depends_on:
+      - mqtt-broker
+      - time-server # Depende del servidor de tiempo
+    command: "node publisher/publisher.js"
+    environment:
+      - DEVICE_ID=sensor-004
+      - CLOCK_DRIFT_RATE=500
+      - PROCESS_ID=3
+      # --- NUEVO: Configuración de Elección ---
+      - PROCESS_PRIORITY=40 #ID Prioridad Unica
+      - ELECTION_PARTICIPANTS=sensor-1:10,sensor-2:20,sensor-3:30,sensor-4:40,sensor-5:50
+    restart: on-failure
+
+  publisher-5:
+    build: .
+    container_name: publisher-5
+    depends_on:
+      - mqtt-broker
+      - time-server # Depende del servidor de tiempo
+    command: "node publisher/publisher.js"
+    environment:
+      - DEVICE_ID=sensor-005
+      - CLOCK_DRIFT_RATE=500
+      - PROCESS_ID=4
+      # --- NUEVO: Configuración de Elección ---
+      - PROCESS_PRIORITY=50 # ID prioridad unica
+      - ELECTION_PARTICIPANTS=sensor-1:10,sensor-2:20,sensor-3:30,sensor-4:40,sensor-5:50
+    restart: on-failure
+
 
   # --- Servicio para el Suscriptor de Persistencia ---
   persistence-subscriber:
