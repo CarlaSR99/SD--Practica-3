@@ -4,7 +4,7 @@ const mqtt = require('mqtt');
 const config = require('../config');
 
 // --- Configuración Básica ---
-const CLOCK_DRIFT_RATE = parseFloat(process.env.CLOCK_DRIFT_RATE || '0');
+//const CLOCK_DRIFT_RATE = parseFloat(process.env.CLOCK_DRIFT_RATE || '0');
 const DEVICE_ID = process.env.DEVICE_ID || 'sensor-default';
 const PROCESS_ID = parseInt(process.env.PROCESS_ID || '0');
 
@@ -30,12 +30,14 @@ let coord_waitingQueue = [];
 
 // --- Sincronización Reloj (Cristian, Lamport, Vector) ---
 // ... (Variables reducidas para brevedad, la lógica se mantiene)
-let lastRealTime = Date.now();
-let lastSimulatedTime = Date.now();
+// let lastRealTime = Date.now();
+//let lastSimulatedTime = Date.now();
 let clockOffset = 0;
 let lamportClock = 0;
-const VECTOR_PROCESS_COUNT = 3;
+const VECTOR_PROCESS_COUNT = 5;
 let vectorClock = new Array(VECTOR_PROCESS_COUNT).fill(0);
+let max_rtt = 500;
+let lastSyncRequestTime = 0;
 
 // --- Conexión MQTT ---
 const statusTopic = config.topics.status(DEVICE_ID);
@@ -44,6 +46,49 @@ const client = mqtt.connect(brokerUrl, {
   clientId: `pub_${DEVICE_ID}_${Math.random().toString(16).slice(2, 5)}`,
   will: { topic: statusTopic, payload: JSON.stringify({ deviceId: DEVICE_ID, status: 'offline' }), qos: 1, retain: true }
 });
+
+
+// ============================================================================
+//                            Fase 02 Sincronización  Cristian
+// ============================================================================
+
+  function syncClock(){
+    lastSyncRequestTime = Date.now();
+
+    const payload = {
+      deviceId: DEVICE_ID,
+      t1: lastSyncRequestTime
+    };
+
+    client.publish(config.topics.time_request, JSON.stringify(payload));
+    console.log(`[SYNC] Solicitud de sincronización enviada t1=${payload.t1}.`);
+  } 
+  
+  function handleTimeResponse(msg){
+    const t2 = Date.now();
+    const t1 = msg.t1;
+    const serverTime = msg.serverTime;
+    
+    if(!t1 || !serverTime) return;
+
+    const rtt = t2 - t1;
+   
+    if(rtt > max_rtt) {
+      console.warn(`[SYNC] Respuesta descartada por excederse: ${rtt}ms (umbral: ${max_rtt}ms)`);
+      return;
+    }
+
+    const estimado = serverTime + (rtt / 2);
+    clockOffset = estimado - t2;
+
+    console.log(`[SYNC] Respuesta recibida. RTT=${rtt}ms, Clock Offset ajustado a ${clockOffset}ms.`);
+  }
+
+  function getCorrectedTime(){
+    return new Date(Date.now() + clockOffset);
+  }
+
+
 
 // ============================================================================
 //                            LÓGICA DEL CICLO DE VIDA
@@ -110,12 +155,18 @@ client.on('message', (topic, message) => {
   }
 
   // --- 4. SINCRONIZACIÓN DE RELOJ (CRISTIAN) ---
+    // if (topic === config.topics.time_response(DEVICE_ID)) {
+      // const rtt = Date.now() - (payload.t1 || Date.now()); // Simplificado
+      //const correctTime = payload.serverTime + (rtt / 2);
+      //clockOffset = correctTime - getSimulatedTime().getTime();
+  //}
+
   if (topic === config.topics.time_response(DEVICE_ID)) {
-    const rtt = Date.now() - (payload.t1 || Date.now()); // Simplificado
-    const correctTime = payload.serverTime + (rtt / 2);
-    clockOffset = correctTime - getSimulatedTime().getTime();
+    handleTimeResponse(payload);
+    return;
   }
-});
+  })
+;
 
 // ============================================================================
 //                          ALGORITMO DE ELECCIÓN (BULLY)
@@ -282,19 +333,19 @@ function publishCoordStatus() {
 //                            FUNCIONES AUXILIARES
 // ============================================================================
 
-function getSimulatedTime() {
-  const now = Date.now();
-  const realElapsed = now - lastRealTime;
-  const simulatedElapsed = realElapsed + (realElapsed * CLOCK_DRIFT_RATE / 1000);
-  lastSimulatedTime = lastSimulatedTime + simulatedElapsed;
-  lastRealTime = now;
-  return new Date(Math.floor(lastSimulatedTime));
-}
+//function getSimulatedTime() {
+//  const now = Date.now();
+//  const realElapsed = now - lastRealTime;
+//  const simulatedElapsed = realElapsed + (realElapsed * CLOCK_DRIFT_RATE / 1000);
+//  lastSimulatedTime = lastSimulatedTime + simulatedElapsed;
+//  lastRealTime = now;
+//  return new Date(Math.floor(lastSimulatedTime));
+//}
 
-function syncClock() {
-  const payload = JSON.stringify({ deviceId: DEVICE_ID, t1: Date.now() });
-  client.publish(config.topics.time_request, payload, { qos: 0 });
-}
+//function syncClock() {
+//  const payload = JSON.stringify({ deviceId: DEVICE_ID, t1: Date.now() });
+//  client.publish(config.topics.time_request, payload, { qos: 0 });
+//}
 
 function requestCalibration() {
   if (sensorState === 'IDLE' && !isCoordinator) { // El coordinador no se auto-solicita en este ejemplo simple
@@ -319,14 +370,14 @@ function releaseLock() {
 function publishTelemetry() {
   lamportClock++;
   vectorClock[PROCESS_ID]++;
-  const correctedTime = new Date(getSimulatedTime().getTime() + clockOffset);
+  const correctedTime = getCorrectedTime();
 
   const telemetryData = {
     deviceId: DEVICE_ID,
     temperatura: (Math.random() * 30).toFixed(2),
     humedad: (Math.random() * 100).toFixed(2),
     timestamp: correctedTime.toISOString(),
-    timestamp_simulado: getSimulatedTime().toISOString(),
+    //timestamp_simulado: getCorrectedTime().toISOString(),
     clock_offset: clockOffset.toFixed(0),
     lamport_ts: lamportClock,
     vector_clock: [...vectorClock],
